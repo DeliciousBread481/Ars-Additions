@@ -10,6 +10,7 @@ import com.github.jarva.arsadditions.setup.registry.AddonEntityRegistry;
 import com.github.jarva.arsadditions.setup.registry.AddonItemRegistry;
 import com.hollingsworth.arsnouveau.api.perk.IPerk;
 import com.hollingsworth.arsnouveau.api.perk.PerkInstance;
+import com.hollingsworth.arsnouveau.api.perk.PerkSlot;
 import com.hollingsworth.arsnouveau.api.util.PerkUtil;
 import com.hollingsworth.arsnouveau.common.items.data.ArmorPerkHolder;
 import com.hollingsworth.arsnouveau.setup.registry.DataComponentRegistry;
@@ -69,34 +70,34 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
     private static final EntityDataAccessor<ItemStack> DATA_ID_CARPET_STACK = SynchedEntityData.defineId(MagicCarpetEntity.class, EntityDataSerializers.ITEM_STACK);
 
     private static final int SMALL_MAX_PASSENGERS = 2;
-    private static final int LARGE_MAX_PASSENGERS = 4;
+    private static final int LARGE_MAX_PASSENGERS = 5;
     private static final float SMALL_FRONT_PASSENGER_Z = 0.2F;
     private static final float SMALL_BACK_PASSENGER_Z = -0.6F;
-    private static final float LARGE_FRONT_LEFT_X = -0.45F;
-    private static final float LARGE_FRONT_LEFT_Z = 0.45F;
-    private static final float LARGE_FRONT_RIGHT_X = 0.45F;
-    private static final float LARGE_FRONT_RIGHT_Z = 0.45F;
-    private static final float LARGE_BACK_LEFT_X = -0.45F;
-    private static final float LARGE_BACK_LEFT_Z = -0.45F;
-    private static final float LARGE_BACK_RIGHT_X = 0.45F;
-    private static final float LARGE_BACK_RIGHT_Z = -0.45F;
+    private static final float LARGE_DRIVER_SEAT_X = 0.0F;
+    private static final float LARGE_DRIVER_SEAT_Z = 14.0F / 16.0F;
+    private static final float LARGE_PASSENGER_X_SPREAD = 10.0F / 16.0F;
+    private static final float LARGE_PASSENGER_FRONT_ROW_Z = 2.0F / 16.0F;
+    private static final float LARGE_PASSENGER_BACK_ROW_Z = -8.0F / 16.0F;
     private static final double PASSENGER_HEIGHT_OFFSET = 0.08D;
     private static final double DISMOUNT_TOP_OFFSET = 0.08D;
     private static final float MAX_SIDE_TILT = 18.0F;
     private static final float SIDE_TILT_LERP = 0.25F;
     private static final double SMALL_HITBOX_HALF_WIDTH = 12.0D / 16.0D;
     private static final double SMALL_HITBOX_HALF_LENGTH = 16.0D / 16.0D;
-    private static final double LARGE_HITBOX_HALF_WIDTH = 1.0D;
-    private static final double LARGE_HITBOX_HALF_LENGTH = 1.5D;
+    private static final double LARGE_HITBOX_HALF_WIDTH = 24.0D / 16.0D;
+    private static final double LARGE_HITBOX_HALF_LENGTH = 32.0D / 16.0D;
     private static final double HITBOX_HEIGHT = 1.0D / 16.0D;
-    private static final double HITBOX_Z_OFFSET = -1.0D / 16.0D;
+    private static final double SMALL_HITBOX_LOCAL_X_OFFSET = 0.0D;
+    private static final double SMALL_HITBOX_LOCAL_Z_OFFSET = -1.0D / 16.0D;
+    private static final double LARGE_HITBOX_LOCAL_X_OFFSET = 0.0D;
+    private static final double LARGE_HITBOX_LOCAL_Z_OFFSET = 0.0D;
     private static final double HITBOX_ROTATION_CLEARANCE = 1.0D / 16.0D;
     private static final float SMALL_SHADOW_RADIUS = 0.8F;
     private static final float LARGE_SHADOW_RADIUS = 1.2F;
     private static final double SMALL_MODEL_HALF_LENGTH = 1.0D;
     private static final double SMALL_MODEL_HALF_WIDTH = 0.75D;
-    private static final double LARGE_MODEL_HALF_LENGTH = 1.5D;
-    private static final double LARGE_MODEL_HALF_WIDTH = 1.0D;
+    private static final double LARGE_MODEL_HALF_LENGTH = 32.0D / 16.0D;
+    private static final double LARGE_MODEL_HALF_WIDTH = 24.0D / 16.0D;
 
     private static final double MAX_HORIZONTAL_SPEED = 0.90D;
     private static final double MAX_VERTICAL_SPEED = 0.30D;
@@ -288,9 +289,11 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
 
         Vec3 worldIntent = this.toWorldIntent(horizontalIntent, player.getYRot());
         double verticalIntent = this.getVerticalIntent(player, horizontalIntent);
+        double speedMultiplier = this.getSpeedMultiplier();
 
         Vec3 velocity = this.getDeltaMovement();
-        velocity = velocity.add(worldIntent.scale(HORIZONTAL_ACCELERATION));
+        // Scale acceleration with thread speed so boosted caps are actually reachable while riding.
+        velocity = velocity.add(worldIntent.scale(HORIZONTAL_ACCELERATION * speedMultiplier));
         velocity = new Vec3(velocity.x, velocity.y + verticalIntent * VERTICAL_ACCELERATION, velocity.z);
 
         if (horizontalIntent.lengthSqr() < 1.0E-4D) {
@@ -675,7 +678,20 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
     protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float partialTick) {
         Vec2 seatOffset = this.getPassengerSeatOffset(passenger);
         double yOffset = (double) (dimensions.height() / 3.0F) + PASSENGER_HEIGHT_OFFSET;
-        return new Vec3(seatOffset.x, yOffset, seatOffset.y).yRot(-this.getYRot() * Mth.DEG_TO_RAD);
+        float pitchRadians = Mth.lerp(partialTick, this.xRotO, this.getXRot()) * Mth.DEG_TO_RAD;
+        float yawRadians = Mth.lerp(partialTick, this.yRotO, this.getYRot()) * Mth.DEG_TO_RAD;
+
+        double localX = seatOffset.x;
+        double localY = yOffset;
+        double localZ = seatOffset.y;
+
+        // Rotate seat point with carpet pitch so riders stay attached when leaning forward/back.
+        double pitchedY = localY * Mth.cos(pitchRadians) - localZ * Mth.sin(pitchRadians);
+        double pitchedZ = localY * Mth.sin(pitchRadians) + localZ * Mth.cos(pitchRadians);
+
+        double worldX = localX * Mth.cos(yawRadians) - pitchedZ * Mth.sin(yawRadians);
+        double worldZ = pitchedZ * Mth.cos(yawRadians) + localX * Mth.sin(yawRadians);
+        return new Vec3(worldX, pitchedY, worldZ);
     }
 
     @Override
@@ -724,13 +740,16 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
     }
 
     private AABB makeBoundingBoxForFacing(Direction facing) {
-        float yawRadians = facing.toYRot() * Mth.DEG_TO_RAD;
+        float yawRadians = this.getYRot() * Mth.DEG_TO_RAD;
         double sinYaw = Mth.sin(yawRadians);
         double cosYaw = Mth.cos(yawRadians);
-        double centerX = this.getX() - HITBOX_Z_OFFSET * sinYaw;
-        double centerZ = this.getZ() + HITBOX_Z_OFFSET * cosYaw;
-        double halfWidth = this.isLargeCarpet() ? LARGE_HITBOX_HALF_WIDTH : SMALL_HITBOX_HALF_WIDTH;
-        double halfLength = this.isLargeCarpet() ? LARGE_HITBOX_HALF_LENGTH : SMALL_HITBOX_HALF_LENGTH;
+        boolean large = this.isLargeCarpet();
+        double localXOffset = large ? LARGE_HITBOX_LOCAL_X_OFFSET : SMALL_HITBOX_LOCAL_X_OFFSET;
+        double localZOffset = large ? LARGE_HITBOX_LOCAL_Z_OFFSET : SMALL_HITBOX_LOCAL_Z_OFFSET;
+        double centerX = this.getX() + (localXOffset * cosYaw - localZOffset * sinYaw);
+        double centerZ = this.getZ() + (localZOffset * cosYaw + localXOffset * sinYaw);
+        double halfWidth = large ? LARGE_HITBOX_HALF_WIDTH : SMALL_HITBOX_HALF_WIDTH;
+        double halfLength = large ? LARGE_HITBOX_HALF_LENGTH : SMALL_HITBOX_HALF_LENGTH;
         double halfX = facing.getAxis() == Direction.Axis.X ? halfLength : halfWidth;
         double halfZ = facing.getAxis() == Direction.Axis.X ? halfWidth : halfLength;
         double minY = this.getY();
@@ -741,6 +760,8 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
         Direction desiredFacing = Direction.fromYRot(this.getYRot());
         Direction currentFacing = this.hitboxFacing == null ? Direction.NORTH : this.hitboxFacing;
         if (desiredFacing == currentFacing) {
+            // Keep center offset aligned to current yaw even when cardinal facing is unchanged.
+            this.setBoundingBox(this.makeBoundingBoxForFacing(currentFacing));
             return;
         }
 
@@ -749,6 +770,9 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
         if (this.level().noBlockCollision(this, clearanceBox)) {
             this.hitboxFacing = desiredFacing;
             this.setBoundingBox(targetBox);
+        } else {
+            // Fallback keeps center in sync if we cannot rotate to the next axis-aligned hitbox.
+            this.setBoundingBox(this.makeBoundingBoxForFacing(currentFacing));
         }
     }
 
@@ -822,13 +846,15 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
             return 0;
         }
 
-        int slotValue = getSlotValueForPerk(stack, targetPerk);
-        if (slotValue <= 0) {
-            return 0;
+        List<IPerk> perks = holder.getPerks();
+        List<PerkSlot> activeSlots = holder.getSlotsForTier(stack);
+        int pairedSize = Math.min(perks.size(), activeSlots.size());
+        for (int i = 0; i < pairedSize; i++) {
+            if (perks.get(i).equals(targetPerk)) {
+                return activeSlots.get(i).value();
+            }
         }
-
-        int activeSlotCount = holder.getSlotsForTier(stack).size();
-        return Math.min(slotValue, activeSlotCount);
+        return 0;
     }
 
     private static int getSlotValueForPerk(ItemStack stack, IPerk targetPerk) {
@@ -934,23 +960,44 @@ public class MagicCarpetEntity extends VehicleEntity implements GeoEntity {
     }
 
     private Vec2 getPassengerSeatOffset(Entity passenger) {
-        int index = this.getPassengers().indexOf(passenger);
+        List<Entity> passengers = this.getPassengers();
+        int index = passengers.indexOf(passenger);
         if (index < 0) {
             return Vec2.ZERO;
         }
 
         if (!this.isLargeCarpet()) {
-            if (this.getPassengers().size() <= 1) {
+            if (passengers.size() <= 1) {
                 return Vec2.ZERO;
             }
             return index == 0 ? new Vec2(0.0F, SMALL_FRONT_PASSENGER_Z) : new Vec2(0.0F, SMALL_BACK_PASSENGER_Z);
         }
 
-        return switch (index) {
-            case 0 -> new Vec2(LARGE_FRONT_LEFT_X, LARGE_FRONT_LEFT_Z);
-            case 1 -> new Vec2(LARGE_FRONT_RIGHT_X, LARGE_FRONT_RIGHT_Z);
-            case 2 -> new Vec2(LARGE_BACK_LEFT_X, LARGE_BACK_LEFT_Z);
-            default -> new Vec2(LARGE_BACK_RIGHT_X, LARGE_BACK_RIGHT_Z);
+        Entity driver = this.getControllingPassenger();
+        if (driver == null && !passengers.isEmpty()) {
+            driver = passengers.get(0);
+        }
+
+        if (passenger == driver) {
+            return new Vec2(LARGE_DRIVER_SEAT_X, LARGE_DRIVER_SEAT_Z);
+        }
+
+        int passengerRank = 0;
+        for (Entity rider : passengers) {
+            if (rider == driver) {
+                continue;
+            }
+            if (rider == passenger) {
+                break;
+            }
+            passengerRank++;
+        }
+
+        return switch (passengerRank) {
+            case 0 -> new Vec2(-LARGE_PASSENGER_X_SPREAD, LARGE_PASSENGER_FRONT_ROW_Z);
+            case 1 -> new Vec2(LARGE_PASSENGER_X_SPREAD, LARGE_PASSENGER_FRONT_ROW_Z);
+            case 2 -> new Vec2(-LARGE_PASSENGER_X_SPREAD, LARGE_PASSENGER_BACK_ROW_Z);
+            default -> new Vec2(LARGE_PASSENGER_X_SPREAD, LARGE_PASSENGER_BACK_ROW_Z);
         };
     }
 
