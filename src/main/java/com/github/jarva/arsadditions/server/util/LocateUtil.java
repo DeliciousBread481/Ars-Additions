@@ -56,12 +56,20 @@ public class LocateUtil {
 
     public static HolderSet<Structure> holderFromTag(ServerLevel level, TagKey<Structure> structureTagKey) {
         Registry<Structure> registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE);
-        return registry.getTag(structureTagKey).orElseThrow();
+        return registry.getTag(structureTagKey).orElseGet(() -> {
+            ArsAdditions.LOGGER.error("Structure tag not found: " + structureTagKey.location() + 
+                ". This may be caused by a missing structure tag from another mod.");
+            return null;
+        });
     }
 
     public static HolderSet<Structure> holderFromResource(ServerLevel level, ResourceKey<Structure> structureResourceKey) {
         Registry<Structure> registry = level.registryAccess().registryOrThrow(Registries.STRUCTURE);
-        return registry.getHolder(structureResourceKey).map(HolderSet::direct).orElseThrow();
+        return registry.getHolder(structureResourceKey).map(HolderSet::direct).orElseGet(() -> {
+            ArsAdditions.LOGGER.error("Structure resource not found: " + structureResourceKey.location() + 
+                ". This may be caused by a missing structure from another mod.");
+            return null;
+        });
     }
 
     public static final String STRUCTURE_LOOKUP_KEY = "async-lookup.uuid";
@@ -114,36 +122,42 @@ public class LocateUtil {
         });
     }
 
-    public static void locateFromStack(ServerLevel level, Vec3 position, ItemStack stack) {
-        CompoundTag tag = stack.getTag();
-        HolderSet<Structure> holderSet = LocateUtil.holderFromTag(level, ExplorationScrollFunction.DEFAULT_DESTINATION);
-        Vec3 origin = position;
-        int searchRadius = ExplorationScrollFunction.DEFAULT_SEARCH_RADIUS;
-        boolean skipKnown = ExplorationScrollFunction.DEFAULT_SKIP_EXISTING;
-        if (tag != null) {
-            if (tag.contains("resource")) {
-                ResourceKey<Structure> key = ResourceKey.create(Registries.STRUCTURE, new ResourceLocation(tag.getString("resource")));
-                holderSet = LocateUtil.holderFromResource(level, key);
-            }
-            if (tag.contains("tag")) {
-                TagKey<Structure> key = TagKey.create(Registries.STRUCTURE, new ResourceLocation(tag.getString("tag")));
-                holderSet = LocateUtil.holderFromTag(level, key);
-            }
-            if (tag.contains("origin")) {
-                CompoundTag originTag = tag.getCompound("origin");
-                double x = originTag.getDouble("x");
-                double y = originTag.getDouble("y");
-                double z = originTag.getDouble("z");
-                origin = new Vec3(x, y, z);
-            }
-            if (tag.contains("search_radius")) {
-                searchRadius = tag.getInt("search_radius");
-            }
-            if (tag.contains("skip_known")) {
-                skipKnown = tag.getBoolean("skip_known");
-            }
-        }
-        LocateUtil.locateWithState(stack, level, holderSet, BlockPos.containing(origin), searchRadius, skipKnown);
+    public static void locateFromStack(ServerLevel level, Vec3 position, ItemStack stack) {  
+        CompoundTag tag = stack.getTag();  
+        HolderSet<Structure> holderSet = LocateUtil.holderFromTag(level, ExplorationScrollFunction.DEFAULT_DESTINATION);  
+        Vec3 origin = position;  
+        int searchRadius = ExplorationScrollFunction.DEFAULT_SEARCH_RADIUS;  
+        boolean skipKnown = ExplorationScrollFunction.DEFAULT_SKIP_EXISTING;  
+        if (tag != null) {  
+            if (tag.contains("resource")) {  
+                ResourceKey<Structure> key = ResourceKey.create(Registries.STRUCTURE, new ResourceLocation(tag.getString("resource")));  
+                holderSet = LocateUtil.holderFromResource(level, key);  
+            }  
+            if (tag.contains("tag")) {  
+                TagKey<Structure> key = TagKey.create(Registries.STRUCTURE, new ResourceLocation(tag.getString("tag")));  
+                holderSet = LocateUtil.holderFromTag(level, key);  
+            }  
+            if (tag.contains("origin")) {  
+                CompoundTag originTag = tag.getCompound("origin");  
+                double x = originTag.getDouble("x");  
+                double y = originTag.getDouble("y");  
+                double z = originTag.getDouble("z");  
+                origin = new Vec3(x, y, z);  
+            }  
+            if (tag.contains("search_radius")) {  
+                searchRadius = tag.getInt("search_radius");  
+            }  
+            if (tag.contains("skip_known")) {  
+                skipKnown = tag.getBoolean("skip_known");  
+            }  
+        }  
+          
+        if (holderSet == null) {  
+            ArsAdditions.LOGGER.error("Failed to resolve structure for exploration scroll. The structure tag or resource may not exist.");  
+            return;  
+        }  
+          
+        LocateUtil.locateWithState(stack, level, holderSet, BlockPos.containing(origin), searchRadius, skipKnown);  
     }
 
     public static void locate(ServerLevel level, HolderSet<Structure> holderSet, BlockPos origin, int searchRadius, boolean skipKnownStructures, Consumer<Pair<BlockPos, Holder<Structure>>> consumer) {

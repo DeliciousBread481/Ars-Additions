@@ -103,11 +103,22 @@ public class LocateStructureRecipe implements Recipe<Container> {
             .orElse(Component.empty());
     }
 
-    public HolderSet<Structure> getStructureHolder(ServerLevel level) {
-        return structure.tag()
-            .map(tag -> LocateUtil.holderFromTag(level, tag))
-            .or(() -> structure.key().map(value -> LocateUtil.holderFromResource(level, value)))
-            .orElse(null);
+    public HolderSet<Structure> getStructureHolder(ServerLevel level) {  
+        HolderSet<Structure> result = structure.tag()  
+            .map(tag -> LocateUtil.holderFromTag(level, tag))  
+            .or(() -> structure.key().map(value -> LocateUtil.holderFromResource(level, value)))  
+            .orElse(null);  
+          
+        if (result == null) {  
+            String structureName = structure.map(  
+                key -> "Resource: " + key.location(),  
+                tag -> "Tag: " + tag.location()  
+            );  
+            ArsAdditions.LOGGER.error("Failed to resolve structure for recipe '" + id +   
+                "'. Structure " + structureName + " does not exist in the registry.");  
+        }  
+          
+        return result;  
     }
 
     public int getRadius() {

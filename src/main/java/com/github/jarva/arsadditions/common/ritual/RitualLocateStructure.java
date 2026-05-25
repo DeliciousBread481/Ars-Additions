@@ -51,7 +51,20 @@ public class RitualLocateStructure extends AbstractRitual {
         if (!(world instanceof ServerLevel serverLevel)) return;
 
         LocateStructureRecipe locator = recipe.get();
-        LocateUtil.locate(serverLevel, locator.getStructureHolder(serverLevel), getPos(), locator.getRadius(), locator.getSkipExisting(), (pair) -> {
+        HolderSet<Structure> structureHolder = locator.getStructureHolder(serverLevel);
+
+        if (structureHolder == null) {
+            ArsAdditions.LOGGER.error("Ritual failed: Could not resolve structure for recipe '" +
+                locator.getId() + "'. Returning consumed items.");
+            for (ItemStack consumedItem : getConsumedItems()) {
+                dispenseItem(world, consumedItem, getPos());
+            }
+            dispenseItem(world, new ItemStack(RitualRegistry.getRitualItemMap().get(getRegistryName())), getPos());
+            setFinished();
+            return;
+        }
+
+        LocateUtil.locate(serverLevel, structureHolder, getPos(), locator.getRadius(), locator.getSkipExisting(), (pair) -> {
             if (pair == null) {
                 for (ItemStack consumedItem : getConsumedItems()) {
                     dispenseItem(world, consumedItem, getPos());
@@ -69,7 +82,7 @@ public class RitualLocateStructure extends AbstractRitual {
                 wayfinderTag.putString("Structure", Component.Serializer.toJson(component));
             });
             GlobalPos global = GlobalPos.of(serverLevel.dimension(), pos);
-            GlobalPos.CODEC.encodeStart(NbtOps.INSTANCE, global).result().ifPresent(tag ->   {
+            GlobalPos.CODEC.encodeStart(NbtOps.INSTANCE, global).result().ifPresent(tag -> {
                 wayfinderTag.put("Locator", tag);
             });
 
